@@ -1,5 +1,5 @@
 import raylib
-import std/random, strformat
+import std/random, strformat, lenientops
 import system
 include "settings.nims"
 
@@ -74,7 +74,6 @@ proc clearFilledRows(g: var GameState) =
     clearedRows = 0
     startRow = g.posY + 3
     endRow: int
-  echo "checking 4 rows starting from: ", startRow
   for row in countDown(startRow, g.posY):
     var clear = true
     for col in countUp(0, boardCols-1):
@@ -89,8 +88,7 @@ proc clearFilledRows(g: var GameState) =
   playSound(clearSound)
 
   endRow = startRow - clearedRows + 1
-  echo "Clearing rows ", startRow, " - ", endRow
-
+  
   # shift all rows above the cleared rows down
   for row in countDown(endRow-1, 0):
     let swapRow = startRow - ((endRow - 1) - row)
@@ -98,7 +96,6 @@ proc clearFilledRows(g: var GameState) =
       g.board[swapRow][col] = g.board[row][col]
       g.board[row][col] = None
 
-  echo "Successfully cleared ", clearedRows, " rows"
   g.score += clearedRows
   dec g.speed
 
@@ -194,27 +191,25 @@ proc main =
       # draw the board
       for i in countUp(0, 19):
         for j in countUp(0, 9):
-          drawRectangle(int32 boardRect.x.int32 + (j*cellWidthPx.int32),
-                        int32 boardRect.y.int32 + (i*cellWidthPx.int32),
-                        cellWidthPx.int32, cellHeightPx.int32,
+          drawRectangle(int32 boardRect.x + (j*cellWidthPx),
+                        int32 boardRect.y + (i*cellWidthPx),
+                        int32 cellWidthPx, int32 cellHeightPx,
                         colorSettings[game.board[i][j]])
       # draw the active tetromino
       for i in countUp(0, 3):
         for j in countUp(0, 3):
           if tetrominos[ord game.activeTetromino][ord game.rotation][i][j]:
-            drawRectangle(int32 boardRect.x.int32 + ((game.posX+j)*cellWidthPx.int32),
-                          int32 boardRect.y.int32 + ((
-                              game.posY+i)*cellWidthPx.int32),
-                          cellWidthPx.int32, cellHeightPx.int32,
+            drawRectangle(int32 boardRect.x + ((game.posX+j)*cellWidthPx),
+                          int32 boardRect.y + ((game.posY+i)*cellWidthPx),
+                          int32 cellWidthPx, int32 cellHeightPx,
                           colorSettings[game.activeTetromino])
       # draw preview
       for i in countUp(0, 3):
         for j in countUp(0, 3):
           if tetrominos[ord game.nextTetromino][0][i][j]:
-            drawRectangle(int32 previewRect.x.int32 + ((1+j)*cellWidthPx.int32),
-                          int32 previewRect.y.int32 + ((
-                              1+i)*cellWidthPx.int32) - (cellWidthPx/2).int32,
-                          cellWidthPx.int32, cellHeightPx.int32,
+            drawRectangle(int32 previewRect.x + ((1+j)*cellWidthPx),
+                          int32 previewRect.y + ((1+i)*cellWidthPx) - (cellWidthPx/2),
+                          int32 cellWidthPx, int32 cellHeightPx,
                           colorSettings[game.nextTetromino])
 
       # draw score
