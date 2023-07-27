@@ -1,18 +1,22 @@
 import raylib
 import std/random, strformat, lenientops
 import system
-include "settings.nims"
+import "settings.nim"
 
 const songStr = staticRead("../assets/Tetris.wav")
 const hitSoundStr = staticRead("../assets/blip.wav")
 const clearSoundStr = staticRead("../assets/bitbounce.wav")
 const gameOverStr = staticRead("../assets/gameover.wav")
 
+
 initAudioDevice() # TODO: REFACTOR SOUNDS
 let song = loadSoundFromWave(loadWaveFromMemory(".wav", songStr.toOpenArrayByte(0, len(songStr)-1)))
 let hitSound = loadSoundFromWave(loadWaveFromMemory(".wav", hitSoundStr.toOpenArrayByte(0, len(hitSoundStr)-1)))
 let clearSound = loadSoundFromWave(loadWaveFromMemory(".wav", clearSoundStr.toOpenArrayByte(0, len(clearSoundStr)-1)))
 let gameOverSound = loadSoundFromWave(loadWaveFromMemory(".wav", gameOverStr.toOpenArrayByte(0, len(gameOverStr)-1)))
+
+const postShaderStr = staticRead("../assets/shaders/post.fs")
+#const shaderStr = staticRead("../assets/shaders/fragment.fs")
 
 type
   GameState = object
@@ -28,6 +32,17 @@ type
     rotation: Rotation
     board: array[boardRows, array[boardCols, TetrominoType]]
 
+var game = GameState(
+    posX: int boardCols/2 - 2, posY: 0,
+    activeTetromino: TetrominoType rand(6) + 1,
+    nextTetromino: TetrominoType rand(6) + 1,
+    speed: initialSpeed, frames: 0, lastBreath: initialLastBreath,
+    rotation: 0, paused: false, score: 0)
+var movedDown, movedAround = false
+
+var backframe: RenderTexture 
+var postShader: Shader 
+
 proc inBounds(g: GameState): bool =
   for i in countUp(0, 3):
     for j in countUp(0, 3):
@@ -38,7 +53,6 @@ proc inBounds(g: GameState): bool =
         if g.board[i + g.posY][j + g.posX] != None:
           return false
   return true
-
 
 proc attemptMove(g: var GameState, dx: int, dy: int): bool =
   let curX = g.posX
@@ -99,50 +113,29 @@ proc clearFilledRows(g: var GameState) =
   g.score += clearedRows
   dec g.speed
 
-proc main =
-  initWindow(screenWidthPx, screenHeightPx, windowTitle)
-  
-  defer: closeAudioDevice()
-  setTargetFPS(fps)
-  setExitKey(Delete)
-  randomize()
-  
-  playSound(song)
-  setSoundVolume(song, 0.3)
-
-  var game = GameState(
-    posX: int boardCols/2 - 2, posY: 0,
-    activeTetromino: TetrominoType rand(6) + 1,
-    nextTetromino: TetrominoType rand(6) + 1,
-    speed: initialSpeed, frames: 0, lastBreath: initialLastBreath,
-    rotation: 0, paused: false, score: 0)
-
-  var movedDown, movedAround = false
-
-  echo game.activeTetromino
-
-  while not windowShouldClose():
-    
-    # Update
+proc updateDrawFrame() {.cdecl.} =
+  # Update
     # handle input:
-    if isKeyPressed(Escape): game.paused = not game.paused
-
+    if isKeyPressed(Escape): 
+      game.paused = not game.paused
     if not game.paused:
       if not isSoundPlaying(song):
         playSound(song) # replay the song
+      
       if isKeyPressed(Up):
         if game.attemptRotation():
           movedAround = true
-      if isKeyDown(Left):
-        if game.attemptMove(-1, 0):
+      if game.frames mod moveSpeed == 0:
+        if isKeyDown(Left):
+          if game.attemptMove(-1, 0):
+            movedAround = true
+        if isKeyDown(Right):
+          if game.attemptMove(1, 0):
+            movedAround = true
+        if isKeyDown(Down):
+          discard game.attemptMove(0, 1)
+          movedDown = true
           movedAround = true
-      if isKeyDown(Right):
-        if game.attemptMove(1, 0):
-          movedAround = true
-      if isKeyDown(Down):
-        discard game.attemptMove(0, 1)
-        movedDown = true
-        movedAround = true
       if isKeyPressed(Space):
         while not game.collides():
           inc game.posY
@@ -183,8 +176,10 @@ proc main =
       movedAround = false
 
     # Draw
-    beginDrawing()
+    
+    beginTextureMode(backframe)
     clearBackground(RayWhite)
+    
     if showFps:
       drawText(cstring fmt"{getFps()}fps", 0, 0, 10, Green)
     if not game.paused:
@@ -220,13 +215,38 @@ proc main =
 
       # draw preview border
       drawRectangleLines(previewRect, 2.0, BLACK)
-
     else: # game is paused
       drawText(cstring "Paused...", int32 screenWidthPx / 2,
           int32 screenHeightPx / 2, 20, Black)
-
+    endTextureMode()
+    beginDrawing()
+    beginShaderMode(postShader)
+    drawTexture(backframe.texture, Vector2(x: 0.0, y: 0.0), White)
+    endShaderMode()
     endDrawing()
 
-  closeWindow() # Close window and OpenGL context
+proc main =
+  initWindow(screenWidthPx, screenHeightPx, windowTitle)
+  backframe = loadRenderTexture(screenWidthPx, screenHeightPx)
+  postShader = loadShaderFromMemory("", postShaderStr)
+  setTextureFilter(backframe.texture, TextureFilter.Bilinear)
+  defer: closeAudioDevice()
+  
+  setExitKey(Delete)
+  randomize()
+  
+  playSound(song)
+  setSoundVolume(song, 0.3)
+
+  
+  when defined(emscripten):
+    emscriptenSetMainLoop(updateDrawFrame, 0, 1)
+  else:
+    setTargetFPS(60)
+    while not windowShouldClose():
+      updateDrawFrame()
+    
+    # post processing
+    closeWindow() # Close window and OpenGL context
 
 main()
